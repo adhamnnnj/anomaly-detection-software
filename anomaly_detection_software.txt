@@ -1,0 +1,598 @@
+import warnings
+import scipy.stats as st
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+from scipy.stats import norm, binom 
+import matplotlib
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score
+from sklearn.naive_bayes import GaussianNB, MultinomialNB, BernoulliNB
+from sklearn.preprocessing import OneHotEncoder
+from scipy.stats import zscore
+
+dataset = pd.read_csv("/Users/dodo_/Downloads/Train_data.csv")
+
+print(dataset.columns)
+print(dataset.dtypes)
+print(dataset.isnull().sum())
+print(dataset[dataset == float('inf')].count())
+
+for col in dataset.columns:
+    null_count = dataset[col].isnull().sum()
+    if null_count > 0:
+        print("Column", col, " has ", null_count, " null values")
+    inf_count = (dataset[col] == float('inf')).sum()
+    if inf_count > 0:
+        print("Column", col, " has ", inf_count, " infinite values")
+
+for col in dataset.columns:
+    if dataset[col].dtype == 'object':
+        print("Column", col, " has ", dataset[col].nunique(), " categories")
+    else:
+        print("Column", col, " is not categorical")
+
+# Summary statistics for numerical columns
+for col in dataset.columns:
+    if dataset[col].dtype != 'object':
+        print("Column", col, ":")
+        print("  Maximum:", dataset[col].max())
+        print("  Minimum:", dataset[col].min())
+        print("  Average:", dataset[col].mean())
+        print("  Variance:", dataset[col].var())
+    else:
+        print("Column", col, " is not numerical")
+
+print("-----------------------------------------------------------------------")
+
+# Task 3: Statistics by Quartiles
+for col in dataset.columns:
+    if np.issubdtype(dataset[col].dtype, np.number):  
+        data = dataset[col].dropna()  
+
+        # Quartile thresholds
+        data_min = data.min()
+        data_max = data.max()
+        range_ = data_max - data_min
+
+        quarter1_threshold = data_min + range_ * 0.25
+        quarter2_threshold = data_min + range_ * 0.50
+        quarter3_threshold = data_min + range_ * 0.75
+
+        quarter1 = data[data <= quarter1_threshold]
+        quarter2 = data[(data > quarter1_threshold) & (data <= quarter2_threshold)]
+        quarter3 = data[(data > quarter2_threshold) & (data <= quarter3_threshold)]
+        quarter4 = data[data > quarter3_threshold]
+
+        print(f"Column: {col}")
+
+        # Quarter 1
+        print("Quarter 1 (lowest 25% of range):")
+        print("  Max:", quarter1.max())
+        print("  Min:", quarter1.min())
+        print("  Average:", quarter1.mean())
+        print("  Variance:", quarter1.var())
+
+        # Quarter 2
+        print("Quarter 2 (25-50% of range):")
+        print("  Max:", quarter2.max())
+        print("  Min:", quarter2.min())
+        print("  Average:", quarter2.mean())
+        print("  Variance:", quarter2.var())
+
+        # Quarter 3
+        print("Quarter 3 (50-75% of range):")
+        print("  Max:", quarter3.max())
+        print("  Min:", quarter3.min())
+        print("  Average:", quarter3.mean())
+        print("  Variance:", quarter3.var())
+
+        # Quarter 4
+        print("Quarter 4 (highest 25% of range):")
+        print("  Max:", quarter4.max())
+        print("  Min:", quarter4.min())
+        print("  Average:", quarter4.mean())
+        print("  Variance:", quarter4.var())
+
+        print("-------")
+        
+# Task 3: PMF, PDF, CDF
+numeric_cols = dataset.select_dtypes(include=[np.number]).columns.tolist()
+
+# Separate continuous and discrete columns
+continuous_cols= [col for col in numeric_cols if dataset[col].nunique() > 10]
+discrete_cols = [col for col in numeric_cols if dataset[col].nunique() <= 10]
+subset = dataset[dataset['class'] == 'anomaly']
+
+# PMF for discrete columns
+for col in discrete_cols:
+    values, counts = np.unique(dataset[col].dropna(), return_counts=True)
+    pmf = counts / counts.sum()
+    plt.bar(values, pmf, color='b', label='All Dataset')
+    plt.title(f'PMF of {col}')
+    plt.xlabel(col)
+    plt.ylabel('Probability')
+    plt.legend()
+    plt.show()
+
+# Histogram for continuous columns
+for col in continuous_cols:
+    plt.hist(dataset[col].dropna(), bins=30, color='blue', alpha=0.7)
+    plt.title(f'Histogram of {col}')
+    plt.xlabel(col)
+    plt.ylabel('Frequency')
+    plt.show()
+
+# CDF for numeric columns
+for col in numeric_cols:
+    sorted_data = np.sort(dataset[col].dropna())
+    cdf = np.arange(1, len(sorted_data) + 1) / len(sorted_data)
+    plt.plot(sorted_data, cdf)
+    plt.title(f'CDF of {col}')
+    plt.xlabel(col)
+    plt.ylabel('CDF')
+    plt.show()
+
+# Scatter plot for count vs srv_count
+if 'count' in dataset.columns and 'srv_count' in dataset.columns:
+    plt.figure(figsize=(8, 5))
+    plt.scatter(dataset['count'], dataset['srv_count'], alpha=0.5, color='blue')
+    plt.title('Scatter Plot: count vs srv_count')
+    plt.xlabel('Count')
+    plt.ylabel('Service Count')
+    plt.grid(True)
+    plt.show()
+# 2D Histogram for dataset
+if 'count' in dataset.columns and 'srv_count' in dataset.columns:
+    count_range = (0, dataset['count'].max())
+    srv_count_range = (0, dataset['srv_count'].max())
+
+    plt.figure(figsize=(8, 6))
+    counts, xedges, yedges, im = plt.hist2d(
+        dataset['count'].dropna(), 
+        dataset['srv_count'].dropna(), 
+        bins=50, 
+        range=[count_range, srv_count_range],  
+        density=True,  
+        cmap='viridis'  
+    )
+
+    plt.colorbar(im, label='Density')
+    plt.title('Joint PDF of count and srv_count (2D Histogram)')
+    plt.xlabel('Count (Connections to Same Destination)')
+    plt.ylabel('Service Count (Connections to Same Service)')
+    plt.show()
+
+# 2D Histogram for subset
+if 'count' in subset.columns and 'srv_count' in subset.columns:
+    count_range = (0, subset['count'].max())
+    srv_count_range = (0, subset['srv_count'].max())
+
+    plt.figure(figsize=(8, 6))
+    counts, xedges, yedges, im = plt.hist2d(
+        subset['count'].dropna(), 
+        subset['srv_count'].dropna(), 
+        bins=50, 
+        range=[count_range, srv_count_range],  
+        density=True,  
+        cmap='viridis'  
+    )
+
+    plt.colorbar(im, label='Density')
+    plt.title('Joint PDF of count and srv_count with attack (2D Histogram)')
+    plt.xlabel('Count (Connections to Same Destination)')
+    plt.ylabel('Service Count (Connections to Same Service)')
+    plt.show()
+
+# Correlation matrix
+numerical_columns = dataset.select_dtypes(include=[np.number]).columns.tolist()
+correlation_matrix = dataset[numerical_columns].corr()
+plt.figure(figsize=(10, 8))
+plt.imshow(correlation_matrix, cmap='coolwarm', interpolation='nearest')
+plt.colorbar(label='Correlation Coefficient')
+plt.title('Correlation Matrix')
+plt.xticks(range(len(numerical_columns)), numerical_columns, rotation=90)
+plt.yticks(range(len(numerical_columns)), numerical_columns)
+plt.show()
+
+
+
+
+target_column = 'class' 
+if target_column not in dataset.columns:
+    print(f"Error: '{target_column}' column not found in the dataset.")
+else:
+ 
+    dataset_features = dataset.drop(columns=[target_column])
+
+
+ 
+    X_train, X_test = train_test_split(dataset_features, test_size=0.3, random_state=42)
+
+
+    y_train = dataset[target_column].loc[X_train.index]
+    y_test = dataset[target_column].loc[X_test.index]
+
+  
+    print(f"\nTraining set size: {X_train.shape[0]} rows")
+    print(f"Testing set size: {X_test.shape[0]} rows")
+
+    print("\nData split completed.")
+#2
+
+
+
+dataset_features = dataset.drop(columns=['class'])
+
+print("Data types of columns before processing:")
+print(dataset_features.dtypes)
+
+numeric_features = dataset_features.select_dtypes(include=[np.number])
+
+
+dataset_features = dataset_features.apply(pd.to_numeric, errors='coerce')
+
+
+dataset_features = dataset_features.fillna(dataset_features.mean())  
+
+print("\nData types of columns after processing:")
+print(dataset_features.dtypes)
+
+
+z_scores = dataset_features.apply(zscore)
+
+for threshold in [2, 3, 4]:
+    anomalies = (np.abs(z_scores) > threshold).any(axis=1)
+    print(f"\nUsing Z-score threshold = {threshold}:")
+    print(f"Number of anomalies detected: {anomalies.sum()}")
+    print(f"Number of normal points: {len(dataset) - anomalies.sum()}")
+
+threshold = 1.59
+
+anomalies = (np.abs(z_scores) > threshold).any(axis=1)
+
+
+dataset['anomaly'] = anomalies
+
+
+print("\nAnomaly detection results:")
+print(dataset[['class', 'anomaly']].head())
+num_anomalies = dataset['anomaly'].sum()
+num_normal = len(dataset) - num_anomalies
+
+print(f"\nNumber of anomalies detected: {num_anomalies}")
+print(f"Number of normal points: {num_normal}")
+
+numeric_columns = X_test.select_dtypes(include=[np.number])
+
+
+z_scores = numeric_columns.apply(zscore)
+anomalies_pred = (np.abs(z_scores) > threshold).any(axis=1)
+
+
+y_test_labels = y_test.map({'normal': False, 'anomaly': True})
+
+
+tn, fp, fn, tp = confusion_matrix(y_test_labels, anomalies_pred).ravel()
+
+accuracy = (tp + tn) / len(y_test)
+precision = tp / (tp + fp) if (tp + fp) != 0 else 0
+recall = tp / (tp + fn) if (tp + fn) != 0 else 0
+
+
+print("Confusion Matrix:")
+print(f"True Positives (TP): {tp}")
+print(f"True Negatives (TN): {tn}")
+print(f"False Positives (FP): {fp}")
+print(f"False Negatives (FN): {fn}")
+print("\nPerformance Metrics:")
+print(f"Accuracy: {accuracy:.4f}")
+print(f"Precision: {precision:.4f}")
+print(f"Recall: {recall:.4f}")
+
+
+#identify the best-fitting probability density functions (PDFs) for numerical features and probability 
+#mass functions (PMFs) for categorical features
+#identify the PDF that best fits the data.
+numeric_cols = dataset.select_dtypes(include=[np.number]).columns.tolist()
+continuous_cols= [col for col in numeric_cols if dataset[col].nunique() > 10]
+
+discrete_cols = [col for col in numeric_cols if dataset[col].nunique() <= 10]
+
+subset = dataset[dataset['class'] == 'anomaly']
+#Calculate PDFs for each column alone, conditioned on an anomaly, and conditioned on no anomaly
+#Evaluate the best PDF fit using mean square error (MSE) and select the PDF with the lowest
+#MSE. 
+
+# Setup matplotlib for consistent plot sizes and style
+matplotlib.rcParams['figure.figsize'] = (16.0, 12.0)
+matplotlib.style.use('ggplot')
+# Function to calculate Mean Squared Error (MSE)
+def mean_square_error(actual, predicted):
+    #"""Calculate Mean Squared Error (MSE)"""
+    return np.mean((actual - predicted) ** 2)
+numerical_cols = dataset.select_dtypes(include=[np.number]).columns
+# Function to fit data and evaluate distributions based on MSE
+def best_fit_distribution(data, bins=200, ax=None):
+    #"""Model data by finding the best fit distribution to data"""
+    # Get histogram of original data
+    y, x = np.histogram(data, bins=bins, density=True)
+    x = (x + np.roll(x, -1))[:-1] / 2.0  # Compute bin centers
+     # Initialize the variable
+    best_params = None
+    best_distribution = []
+
+    # List of distributions to test (with Uniform added)
+    distributions_to_test = [
+        'norm',        # Normal distribution
+        'expon',       # Exponential distribution
+        'gamma',       # Gamma distribution
+        'weibull_min', # Weibull distribution
+        'lognorm',     # Log-normal distribution
+        'uniform',   # Uniform distribution
+        't', 
+        'f', 
+        'rice',
+        
+    ]
+ 
+    min_mse = np.inf
+    # Iterate through each distribution in the list
+    for dist_name in distributions_to_test:
+        print(f"Fitting distribution: {dist_name}")
+        distribution = getattr(st, dist_name)  # Get distribution class from scipy.stats
+
+        try:
+            distribution = getattr(st, dist_name)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore")
+                params = distribution.fit(data)
+                pdf = distribution.pdf(x, *params)
+                mse = np.mean((y - pdf) ** 2)
+                
+                if mse < min_mse:
+                    min_mse = mse
+                    best_distribution = distribution
+                    best_params = params
+        except Exception:
+            pass
+
+    return best_distribution, best_params, min_mse
+
+# Function to generate PDF from the best-fit distribution
+def plot_best_fit(data, column_name, subset_name):
+    mean = np.mean(data)
+    std_dev = np.std(data)
+    x_range = np.linspace(mean - 2 * std_dev, mean + 2 * std_dev, 1000)
+    
+    # Get the best fit distribution
+    best_dist, best_params, _ = best_fit_distribution(data, x_range)
+    
+    # Plot data histogram
+    plt.hist(data, bins=30, density=True, alpha=0.5, color='gray', edgecolor='black')
+
+    # Plot the best fit PDF
+    if best_dist and best_params:
+        pdf_best = best_dist.pdf(x_range, *best_params)
+        plt.plot(x_range, pdf_best, label=f"Best fit: {best_dist.name}", color='red', linewidth=2)
+
+    # Set plot details
+    plt.title(f"Best fit PDF for {column_name} ({subset_name})")
+    plt.xlabel(column_name)
+    plt.ylabel("Density")
+    plt.xlim(mean - 2 * std_dev,mean + 2 * std_dev)
+    plt.legend()
+    plt.show()
+
+# Process each column for all data, and for each class subset (numeric columns)
+   
+for col in numerical_cols:
+    print(f"Processing column: {col}")
+
+    # Plot for entire data
+    plot_best_fit(dataset[col].dropna(), col, "All data")
+
+    # Plot for anomaly subset
+    plot_best_fit(dataset[dataset['class'] == 'anomaly'][col].dropna(), col, "Anomaly")
+
+    # Plot for normal subset
+    plot_best_fit(dataset[dataset['class'] == 'normal'][col].dropna(), col, "Normal")
+    
+#discrete columns 
+discrete_cols = [col for col in numerical_cols if dataset[col].nunique() <= 10] + ['protocol_type','service','flag','class']
+
+for col in discrete_cols:
+    fig, (ax1,ax2,ax3) = plt.subplots(nrows=3,ncols=1,figsize=(8,8))
+    values, counts = np.unique(dataset[col], return_counts=True)
+    pmf = counts / counts.sum()
+    ax1.bar(values, pmf, color='b', label='all data')
+    ax1.set_xlabel(col)
+    ax1.set_ylabel('Probability')
+    ax1.set_title(f'PMF of {col}')
+
+    values, counts = np.unique(dataset[dataset['class'] == 'anomaly'][col], return_counts=True)
+    pmf = counts / counts.sum()
+    ax2.bar(values, pmf, color='r', label='all data')
+    ax2.set_title(f'PMF of {col} conditioned on anomaly')
+    ax2.set_xlabel(col)
+    ax2.set_ylabel('Probability')
+
+    values, counts = np.unique(dataset[dataset['class'] == 'normal'][col], return_counts=True)
+    pmf = counts / counts.sum()
+    ax3.bar(values, pmf, color='g', label='all data')
+    ax3.set_title(f'PMF of {col} conditioned on normal')
+    ax3.set_xlabel(col)
+    ax3.set_ylabel('Probability')
+    plt.show()
+#4
+#In anomaly detection, the goal is to catch rare but important events, like fraud, security breaches, or system failures. These events are usually much less common than normal occurrences, so using *accuracy* as a metric isn't the best choice. A model could easily achieve high accuracy just by predicting "normal" for most cases, even if it misses all the anomalies, making it misleading in situations where the data is imbalanced. 
+#*Precision* is about how many of the predicted anomalies are actually real anomalies. While it’s important in situations where false alarms (false positives) are costly, in anomaly detection, it’s generally more acceptable to have a few false positives if it means not missing a critical anomaly. 
+#*Recall* is the most important metric here because it tells you how many actual anomalies the model is catching. Missing an anomaly (false negative) could have serious consequences, like financial loss or security issues. That's why recall is prioritized – it ensures that as many real anomalies as possible are detected, even if it means raising a few false alarms. 
+#In short, recall should be the main focus in anomaly detection, as catching rare but important events is much more crucial than worrying about a few false positives. 
+
+# Define target and features
+target_column = 'class'
+X_features = dataset.drop(columns=[target_column])
+y_labels = dataset[target_column]
+
+# Split dataset into training and testing data
+X_train, X_test, y_train, y_test = train_test_split(X_features, y_labels, test_size=0.3, random_state=42)
+
+print(f"Training Set Size: {X_train.shape[0]} rows")
+print(f"Testing Set Size: {X_test.shape[0]} rows")
+
+# =========================
+# Data Preprocessing
+# =========================
+
+# Handle missing and infinite values
+dataset.replace([np.inf, -np.inf], np.nan, inplace=True)
+
+# Fill missing values:
+# For numerical columns, fill with the mean
+numeric_features = X_train.select_dtypes(include=[np.number]).columns
+X_train[numeric_features] = X_train[numeric_features].fillna(X_train[numeric_features].mean())
+X_test[numeric_features] = X_test[numeric_features].fillna(X_test[numeric_features].mean())
+
+# For categorical columns, fill missing values with the mode
+categorical_features = X_train.select_dtypes(include=[object]).columns
+X_train[categorical_features] = X_train[categorical_features].fillna(X_train[categorical_features].mode().iloc[0])
+X_test[categorical_features] = X_test[categorical_features].fillna(X_test[categorical_features].mode().iloc[0])
+
+# =========================
+# One-Hot Encoding for Categorical Features
+# =========================
+
+encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+
+# Identify categorical columns in X_train
+categorical_features = X_train.select_dtypes(include=[object]).columns
+
+# Fit and transform categorical features in training and testing datasets
+X_train_encoded = pd.DataFrame(encoder.fit_transform(X_train[categorical_features]))
+X_test_encoded = pd.DataFrame(encoder.transform(X_test[categorical_features]))
+
+# Concatenate encoded categorical features with original numerical features
+X_train_encoded = pd.concat([X_train.select_dtypes(include=[np.number]).reset_index(drop=True), X_train_encoded], axis=1)
+X_test_encoded = pd.concat([X_test.select_dtypes(include=[np.number]).reset_index(drop=True), X_test_encoded], axis=1)
+
+# Ensure all column names are strings
+X_train_encoded.columns = X_train_encoded.columns.astype(str)
+X_test_encoded.columns = X_test_encoded.columns.astype(str)
+
+# =========================
+# Precompute Statistics for Faster Calculation
+# =========================
+
+# Ensure proper alignment of indices
+X_train_encoded = X_train_encoded.reset_index(drop=True)
+y_train = y_train.reset_index(drop=True)
+
+mean_anomaly = X_train_encoded.loc[y_train == 'anomaly'].select_dtypes(include=[np.number]).mean()
+std_anomaly = X_train_encoded.loc[y_train == 'anomaly'].select_dtypes(include=[np.number]).std()
+
+mean_normal = X_train_encoded.loc[y_train == 'normal'].select_dtypes(include=[np.number]).mean()
+std_normal = X_train_encoded.loc[y_train == 'normal'].select_dtypes(include=[np.number]).std()
+
+# =========================
+# Calculate Anomaly Probabilities on Training Data
+# =========================
+
+def compute_naive_bayes_probability(row, X_train, y_train, mean_anomaly, std_anomaly, mean_normal, std_normal):
+    prior_anomaly = (y_train == 'anomaly').mean()
+    prior_normal = (y_train == 'normal').mean()
+
+    likelihood_anomaly = 1.0
+    likelihood_normal = 1.0
+
+    # For numerical columns, use Gaussian PDF
+    for col in X_train.select_dtypes(include=[np.number]).columns:
+        if col in mean_anomaly.index and col in std_anomaly.index:
+            if std_anomaly[col] > 1e-6:
+                likelihood_anomaly *= norm.pdf(row[col], loc=mean_anomaly[col], scale=std_anomaly[col])
+            if std_normal[col] > 1e-6:
+                likelihood_normal *= norm.pdf(row[col], loc=mean_normal[col], scale=std_normal[col])
+
+    # For categorical columns, use PMF
+    for col in X_train.select_dtypes(include=[object]).columns:
+        anomaly_prob = (X_train.loc[y_train == 'anomaly', col] == row[col]).mean()
+        normal_prob = (X_train.loc[y_train == 'normal', col] == row[col]).mean()
+
+        likelihood_anomaly *= anomaly_prob
+        likelihood_normal *= normal_prob
+
+    pr_anomaly_row = likelihood_anomaly * prior_anomaly
+    pr_normal_row = likelihood_normal * prior_normal
+
+    total_prob = pr_anomaly_row + pr_normal_row
+    return pr_anomaly_row / total_prob if total_prob > 0 else 0.0
+
+print("\nCalculating anomaly probabilities for rows in X_train...")
+
+max_rows = 100
+count = 0
+
+anomaly_probs = []
+
+for idx, row in X_train_encoded.iterrows():
+    anomaly_prob = compute_naive_bayes_probability(row, X_train_encoded, y_train, mean_anomaly, std_anomaly, mean_normal, std_normal)
+    anomaly_probs.append(anomaly_prob)
+
+    print(f"Row {idx}: Probability of Anomaly = {anomaly_prob:.6f}")
+
+    count += 1
+    if count >= max_rows:
+        print(f"\nReached the limit of {max_rows} rows. Stopping output.")
+        break
+
+threshold = 0.5
+anomaly_preds = [1 if prob > threshold else 0 for prob in anomaly_probs]
+y_train_labels = y_train.map({'normal': 0, 'anomaly': 1})
+
+custom_accuracy = accuracy_score(y_train_labels[:max_rows], anomaly_preds)
+custom_precision = precision_score(y_train_labels[:max_rows], anomaly_preds)
+custom_recall = recall_score(y_train_labels[:max_rows], anomaly_preds)
+
+print("\nCustom Evaluation Metrics for Task 1 (Training Data):")
+print(f"Accuracy: {custom_accuracy:.4f}")
+print(f"Precision: {custom_precision:.4f}")
+print(f"Recall: {custom_recall:.4f}")
+
+# =========================
+# Task 2 - Train and Evaluate Naive Bayes Models on Test Dataset
+# =========================
+
+models = {
+    'GaussianNB': GaussianNB(),
+    'MultinomialNB': MultinomialNB(),
+    'BernoulliNB': BernoulliNB()
+}
+
+print("\nTraining and evaluating models...")
+
+for model_name, model in models.items():
+    model.fit(X_train_encoded, y_train)
+    y_pred_test = model.predict(X_test_encoded)
+
+    accuracy = accuracy_score(y_test, y_pred_test)
+    precision = precision_score(y_test, y_pred_test, pos_label='anomaly')
+    recall = recall_score(y_test, y_pred_test, pos_label='anomaly')
+    confusion = confusion_matrix(y_test, y_pred_test)
+
+    print(f"\n{model_name}")
+    print(f"Accuracy: {accuracy:.4f}")
+    print(f"Precision: {precision:.4f}")
+    print(f"Recall: {recall:.4f}")
+    print("Confusion Matrix:")
+    print(confusion)
+
+
+#the Gaussian Naive Bayes model has the highest accuracy, which indicates that it correctly classifies the majority of instances. However, 
+#it has a lower recall compared to the Multinomial Naive Bayes model, which means it misses some anomalies.
+#Precision and Recall Trade-off: While Gaussian Naive Bayes performs well in terms of accuracy, 
+#the Multinomial Naive Bayes model has a better recall, which is crucial in anomaly detection scenarios where missing an anomaly (false negative) can have serious consequences.
+#Final Recommendation: Depending on the specific requirements of your application:#If you prioritize overall accuracy and can tolerate some missed anomalies, 
+#Gaussian Naive Bayes may be the better choice.
+#If detecting anomalies is critical and you want to minimize false negatives, then Multinomial Naive Bayes would be preferable due to its higher recall.
+
+
